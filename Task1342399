@@ -1,0 +1,63 @@
+with src as (select * from (values 
+ (1,1, 'Zapchast krylo levoe')
+,(2,1, 'Zapchast krylo') -- избыточная запись
+,(3,1, 'Zapchast krylo Mazda')
+,(4,2, 'Fonar pravy Mazda 626')
+,(5,2, 'Fonar') -- избыточная запись
+,(6,2, 'Fonar Mazda fonar pravy') -- избыточная запись
+,(7,2, 'Zapchast')
+,(8,2, 'Zapch Mazda')
+,(9,2, 'Fonar pravy Mazda 626') -- избыточная запись
+,(10,2, ' 626 626 ') -- избыточная запись
+,(11,2,'Tests')
+ )as t(id_cat,code_cat, class_cat)
+)
+,rsplit as ( select id_cat,code_cat,trim(class_cat) as class_cat,len(trim(class_cat)) as l
+    ,1 as p1 ,cast(charindex(' ',trim(class_cat)) as int) p2
+    from src s
+    union all 
+    select r.id_cat,r.code_cat,r.class_cat,r.l
+    ,r.p2+1 as p1  ,cast(charindex(' ',r.class_cat,r.p2+1) as int) p2
+    from rsplit r 
+    where r.p2>0
+)
+, allwords as (select id_cat,code_cat,class_cat,p1,p2,l ,substring(class_cat,p1,iif(p2>p1,p2-p1,l-p1+1)) as word
+      from rsplit
+)
+, words as (select id_cat,code_cat,class_cat,word from allwords 
+            group by id_cat,code_cat,class_cat,word
+)
+, dict as(select code_cat,word,rank() over (partition by code_cat order by word) as rng 
+          from(select code_cat,word from words group by code_cat,word)t
+)
+, rng as ( select w.id_cat,w.code_cat,w.class_cat,w.word, d.rng
+         ,power(2,d.rng) as mask
+        from words w left join dict d on d.code_cat=w.code_cat and d.word=w.word
+)
+,ord0 as ( select id_cat,code_cat,class_cat,sum_mask
+             ,rank() over (partition by code_cat,sum_mask order by id_cat) as rnk
+           from (select id_cat,code_cat,class_cat,sum(mask) as sum_mask --convert(binary(8),sum(mask),1) as sum_mask 
+                  from rng   group by id_cat,code_cat,class_cat) t
+)
+,ord as ( select id_cat,code_cat,class_cat,sum_mask,rnk --convert(binary(8),sum_mask,1) as sum_mask 
+                  from ord0 where rnk=1
+)
+,rep as ( select t1.id_cat,t1.code_cat,t1.class_cat,convert(binary(8),t1.sum_mask,1) as sum_mask
+                --,t2.id_cat as id_cat2,t2.code_cat as code_cat2,t2.class_cat as class_cat2
+                --,convert(binary(4),t2.sum_mask,1) as sum_mask2
+                --,(t2.sum_mask ^ t1.sum_mask) as norR
+                ,convert(binary(8),((t2.sum_mask ^ t1.sum_mask) & t1.sum_mask),1) as NorAnd
+      from ord t1 left join ord t2 on t2.code_cat=t1.code_cat 
+          and t2.id_cat<>t1.id_cat
+)
+,repClr as ( select id_cat,code_cat,class_cat
+     --, max(sum_mask) maxmask
+     --,min(id_cat2)minid2,min(code_cat2) mincode2,min(class_cat2) as minclass2,max(sum_mask2) maxmask2
+     --,max(norR) mnor,min(norand) minnoraand
+     ,iif(min(norand)>0,'','del') inlist
+     from rep
+     group by id_cat,code_cat,class_cat 
+     --having min(norand)>0
+)
+select * from repClr --rng --dict --rsplit
+order by id_cat--,t1.id_cat
