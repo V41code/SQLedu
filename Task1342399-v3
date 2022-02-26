@@ -1,0 +1,51 @@
+drop table if exists #t;
+
+create table #t (
+id_cat int,
+code_cat varchar(255),
+class_cat varchar(255)
+);
+
+
+with src as (select * from (values 
+ (1,1, 'Zapchast krylo levoe')
+,(12,1, 'Zapchast koleso pravoe')
+,(2,1, 'Zapchast krylo') -- избыточная запись
+,(3,1, 'Zapchast krylo Mazda')
+,(13,1, 'Zapchast koleso levoe Mazda')
+,(4,2, 'Fonar pravy Mazda 626')
+,(5,2, 'Fonar') -- избыточная запись
+,(6,2, 'Fonar Mazda fonar pravy') -- избыточная запись
+,(7,2, 'Zapchast')
+,(8,2, 'Zapch Mazda')
+,(9,2, 'Fonar pravy Mazda 626') -- избыточная запись
+,(10,2, ' 626 626 ') -- избыточная запись
+,(11,2,'Tests')
+ )as t(id_cat,code_cat, class_cat)
+)
+insert into #t select * from src;
+
+
+with wordlist as (
+    select #t.[id_cat], #t.[code_cat], x.[value] as [word]
+    from #t
+        cross apply string_split([class_cat], char(32)) x
+    where x.[value] > ''
+)
+, cat as (
+select t.* ,(
+    select top 1 id_cat  from #t t2 
+     where t2.[code_cat] = t.[code_cat] and t2.id_cat<>t.id_cat
+     and not exists (
+        select  w1.[word] word from wordlist w1 where w1.[id_cat] = t.[id_cat]
+        except
+        select w2.[word] from wordlist w2 
+           where w2.[code_cat] = t.[code_cat] and w2.[id_cat] = t2.[id_cat]
+         )   
+     ) as id_cat2
+from #t t
+)
+select * from cat
+--where (id_cat2 is null) or id_cat2>id_cat
+order by code_cat,id_cat
+;
